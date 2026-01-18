@@ -1,0 +1,7 @@
+{
+  "name": "Rufet Auto Electric OBD2",
+  "description": "Professional-grade automotive diagnostic tool with visual component mapping and AI-powered repair insights by Rufet Auto Electric.",
+  "requestFramePermissions": [
+    "bluetooth"
+  ]
+}

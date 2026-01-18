@@ -1,0 +1,16 @@
+
+{
+  "short_name": "RufetAuto",
+  "name": "Rufet Auto Electric OBD2",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2085/2085281.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#070709",
+  "background_color": "#070709"
+}
