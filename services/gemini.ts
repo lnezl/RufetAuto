@@ -1,77 +1,26 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { DTC, AIInsight, MaintenanceRecommendation, ChatMessage } from "../types";
-import { LOCAL_DTC_DATABASE, getLocalInsight, localDecodeVin } from "./localData";
+import { DTC, AIInsight } from "../types";
+import { getLocalInsight, localDecodeVin } from "./localData";
 
-// Initialize AI only if key exists
-const apiKey = process.env.API_KEY || "";
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
-
-const isOnline = () => navigator.onLine && !!ai;
-
-export const translateDTCList = async (errors: DTC[], lang: 'ru' | 'az'): Promise<DTC[]> => {
-  if (!isOnline() || !ai) {
-    return errors.map(err => {
-      const local = LOCAL_DTC_DATABASE[err.code];
-      return local ? { ...err, description: local[lang] } : err;
-    });
-  }
-
-  try {
-    const promptLang = lang === 'az' ? 'Azərbaycan dilində' : 'на русском языке';
-    const errorItems = errors.map(e => ({ code: e.code, description: e.description }));
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Translate the following OBD2 error descriptions to ${promptLang}. 
-      Maintain technical accuracy for automotive terms. 
-      Return a JSON array of objects with "code" and "translatedDescription".
-      Errors: ${JSON.stringify(errorItems)}`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              code: { type: Type.STRING },
-              translatedDescription: { type: Type.STRING }
-            },
-            required: ["code", "translatedDescription"]
-          }
-        }
-      }
-    });
-
-    const translations = JSON.parse(response.text.trim());
-    return errors.map(err => {
-      const trans = translations.find((t: any) => t.code === err.code);
-      return {
-        ...err,
-        description: trans ? trans.translatedDescription : err.description
-      };
-    });
-  } catch (e) {
-    console.warn("Gemini translation failed, using local fallback", e);
-    return errors.map(err => {
-      const local = LOCAL_DTC_DATABASE[err.code];
-      return local ? { ...err, description: local[lang] } : err;
-    });
-  }
-};
+// Always use environment variable directly and check availability
+const isOnline = () => navigator.onLine && !!process.env.API_KEY;
 
 export const getDTCInsight = async (dtc: DTC, lang: 'ru' | 'az'): Promise<AIInsight> => {
-  if (!isOnline() || !ai) return getLocalInsight(dtc.code, lang);
+  if (!isOnline()) return getLocalInsight(dtc.code, lang);
 
   try {
-    const promptLang = lang === 'az' ? 'Azərbaycan dilində' : 'на русском языке';
-    const role = lang === 'az' ? 'Sən peşəkar avtomexaniksən.' : 'Ты — профессиональный автомеханик.';
+    // Create new GoogleGenAI instance right before the call to ensure fresh key access
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
+    const promptLang = lang === 'az' ? 'Azərbaycan dilində' : 'на русском языке';
+    
+    // Fix: Refactored generateContent to use a single object argument containing model, contents, and config.
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `${role} OBD2 xəta kodu ${dtc.code}: ${dtc.description} analiz et. 
-      Bütün JSON sahələrini (explanation, possibleCauses, severityAdvice) MÜTLƏQ ${promptLang} doldur.
-      VAJİB: Təmir xərcini (estimatedRepairCost) Azərbaycan Manatı (AZN) ilə qeyd et. Cavabı yalnız təmiz JSON formatında ver.`,
+      contents: `Проанализируй код ошибки OBD2 ${dtc.code}: ${dtc.description}. 
+        Дай краткое объяснение, список причин и примерную стоимость ремонта в AZN. 
+        Язык: ${promptLang}.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -87,73 +36,29 @@ export const getDTCInsight = async (dtc: DTC, lang: 'ru' | 'az'): Promise<AIInsi
       }
     });
 
-    return JSON.parse(response.text.trim());
+    // Directly access text property (getter)
+    const resultText = response.text;
+    if (!resultText) throw new Error("No text content returned from model.");
+    
+    return JSON.parse(resultText.trim());
   } catch (e) {
-    console.warn("Gemini insight failed, using local fallback", e);
+    console.error("Gemini DTC Insight fetch failed, using local database:", e);
     return getLocalInsight(dtc.code, lang);
   }
 };
 
-export const getReportSummary = async (errors: DTC[], lang: 'ru' | 'az'): Promise<string> => {
-  if (!isOnline() || !ai) {
-    return lang === 'ru' 
-      ? `Обнаружено ${errors.length} ошибок. Требуется диагностика систем: ${[...new Set(errors.map(e => e.system))].join(', ')}.`
-      : `${errors.length} xəta aşkarlandı. Sistemlərin diaqnostikası tələb olunur: ${[...new Set(errors.map(e => e.system))].join(', ')}.`;
-  }
-
-  try {
-    const promptLang = lang === 'az' ? 'Azərbaycan dilində' : 'на русском языке';
-    const errorText = errors.map(e => `${e.code}: ${e.description}`).join(', ');
-    
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Как эксперт Rufet Auto Electric, напиши краткое профессиональное резюме по следующим ошибкам: ${errorText}. Объясни клиенту понятным языком, что именно не так и насколько это критично. Язык: ${promptLang}.`,
-    });
-
-    return response.text;
-  } catch (e) {
-    return lang === 'ru' ? "Сводка временно недоступна." : "Xülasə müvəqqəti olaraq əlçatmazdır.";
-  }
-};
-
-export const chatWithMechanic = async (history: ChatMessage[], message: string, context: string, lang: 'ru' | 'az') => {
-  if (!isOnline() || !ai) return lang === 'ru' ? "Извините, чат работает только онлайн." : "Bağışlayın, çat yalnız onlayn işləyir.";
-
-  try {
-    const systemInstruction = lang === 'az' 
-      ? `Sən Rufet Auto Electric-in virtual mexanikisən. Kontekst: ${context}. BÜTÜN cavablar Azərbaycan dilində olmalıdır. Maliyyə hesablamalarını AZN ilə apar. Qısa və peşəkar cavab ver.` 
-      : `Ты — виртуальный механик Rufet Auto Electric. Контекст: ${context}. ВСЕ ответы должны быть на русском языке. Все финансовые расчеты веди в AZN. Отвечай кратко и профессионально.`;
-
-    const contents = history.map(msg => ({
-      role: msg.role,
-      parts: [{ text: msg.text }]
-    }));
-    
-    contents.push({
-      role: 'user',
-      parts: [{ text: message }]
-    });
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: contents,
-      config: { systemInstruction },
-    });
-
-    return response.text;
-  } catch (e) {
-    return lang === 'ru' ? "Ошибка связи с ИИ." : "Süni intellektlə əlaqə xətası.";
-  }
-};
-
 export const decodeVin = async (vin: string, lang: 'ru' | 'az') => {
-  if (!isOnline() || !ai) return localDecodeVin(vin);
+  // Fix: Added the missing 'lang' argument to localDecodeVin call.
+  if (!isOnline() || vin === "VIN_READING_FAILED") return localDecodeVin(vin, lang);
 
   try {
-    const promptLang = lang === 'az' ? 'Azərbaycan' : 'Русский';
+    // Create new GoogleGenAI instance right before the call
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    // Fix: Refactored generateContent to use a single object argument containing model, contents, and config.
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Identify vehicle by VIN: ${vin}. Provide JSON with make, model, and manufacturing year. Language: ${promptLang}.`,
+      contents: `Identify vehicle by VIN: ${vin}. Provide JSON with make, model, and manufacturing year.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -167,59 +72,15 @@ export const decodeVin = async (vin: string, lang: 'ru' | 'az') => {
         }
       }
     });
-    return JSON.parse(response.text.trim());
-  } catch (e) {
-    return localDecodeVin(vin);
-  }
-};
+    
+    // Directly access text property (getter)
+    const resultText = response.text;
+    if (!resultText) throw new Error("No text content returned from model.");
 
-export const getMaintenanceRecommendations = async (vin: string, year: number, lang: 'ru' | 'az', make?: string, model?: string): Promise<MaintenanceRecommendation> => {
-  const vehicle = make ? `${make} ${model} (${year})` : `${year} model vehicle`;
-  const promptLang = lang === 'az' ? 'Azərbaycan' : 'Русский';
-  
-  if (!isOnline() || !ai) {
-    return {
-      vehicleType: vehicle,
-      nextProcedures: [
-        { title: "Oil Change", description: "Regular interval", priority: "medium" },
-        { title: "Brake Check", description: "Safety inspection", priority: "high" }
-      ],
-      generalAdvice: "Check owner's manual for specific details."
-    };
-  }
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Maintenance for ${vehicle}. Language: ${promptLang}. Return JSON only.`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            vehicleType: { type: Type.STRING },
-            nextProcedures: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                  description: { type: Type.STRING },
-                  priority: { type: Type.STRING }
-                }
-              }
-            },
-            generalAdvice: { type: Type.STRING }
-          }
-        }
-      }
-    });
-    return JSON.parse(response.text.trim());
+    return JSON.parse(resultText.trim());
   } catch (e) {
-    return {
-      vehicleType: vehicle,
-      nextProcedures: [],
-      generalAdvice: "Error fetching data."
-    };
+    console.error("Gemini VIN decode failed, using local logic:", e);
+    // Fix: Added the missing 'lang' argument to localDecodeVin call.
+    return localDecodeVin(vin, lang);
   }
 };

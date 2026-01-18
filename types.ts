@@ -30,15 +30,6 @@ export interface DiagnosticResult {
   scanType: ScanType;
 }
 
-export interface ComparisonResult {
-  before: DiagnosticResult;
-  after: DiagnosticResult;
-  resolvedCodes: string[];
-  persistingCodes: string[];
-  newCodes: string[];
-  healthImprovement: number;
-}
-
 export interface AIInsight {
   explanation: string;
   possibleCauses: string[];
@@ -46,17 +37,17 @@ export interface AIInsight {
   severityAdvice: string;
 }
 
-export interface MaintenanceRecommendation {
-  vehicleType: string;
-  nextProcedures: {
-    title: string;
-    description: string;
-    priority: 'low' | 'medium' | 'high';
-  }[];
-  generalAdvice: string;
-}
-
-export interface ChatMessage {
-  role: 'user' | 'model';
-  text: string;
+export interface LiveData {
+  rpm: number;
+  speed: number;
+  coolantTemp: number;
+  load: number;
+  voltage: number;
+  intakeTemp: number;
+  throttle: number;
+  maf: number;
+  timing: number;
+  fuelTrimShort: number;
+  fuelTrimLong: number;
+  fuelStatus: string;
 }

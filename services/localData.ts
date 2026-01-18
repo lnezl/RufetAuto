@@ -95,7 +95,7 @@ export const getLocalInsight = (code: string, lang: 'ru' | 'az'): AIInsight => {
   };
 };
 
-export const localDecodeVin = (vin: string) => {
+export const localDecodeVin = (vin: string, lang: 'ru' | 'az') => {
   if (!vin || vin.length < 3) return null;
   
   const wmi = vin.substring(0, 3);
@@ -111,7 +111,7 @@ export const localDecodeVin = (vin: string) => {
 
   return {
     make,
-    model: "Series/Model",
+    model: lang === 'az' ? "Model qeyd olunmayıb" : "Модель не указана",
     year: yearMap[yearCode] || 2024
   };
 };
