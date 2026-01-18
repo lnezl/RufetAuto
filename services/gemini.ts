@@ -3,13 +3,14 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { DTC, AIInsight, MaintenanceRecommendation, ChatMessage } from "../types";
 import { LOCAL_DTC_DATABASE, getLocalInsight, localDecodeVin } from "./localData";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Initialize AI only if key exists
+const apiKey = process.env.API_KEY || "";
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
-// Check if we are online and have quota
-const isOnline = () => navigator.onLine;
+const isOnline = () => navigator.onLine && !!ai;
 
 export const translateDTCList = async (errors: DTC[], lang: 'ru' | 'az'): Promise<DTC[]> => {
-  if (!isOnline()) {
+  if (!isOnline() || !ai) {
     return errors.map(err => {
       const local = LOCAL_DTC_DATABASE[err.code];
       return local ? { ...err, description: local[lang] } : err;
@@ -60,7 +61,7 @@ export const translateDTCList = async (errors: DTC[], lang: 'ru' | 'az'): Promis
 };
 
 export const getDTCInsight = async (dtc: DTC, lang: 'ru' | 'az'): Promise<AIInsight> => {
-  if (!isOnline()) return getLocalInsight(dtc.code, lang);
+  if (!isOnline() || !ai) return getLocalInsight(dtc.code, lang);
 
   try {
     const promptLang = lang === 'az' ? 'Azərbaycan dilində' : 'на русском языке';
@@ -94,7 +95,7 @@ export const getDTCInsight = async (dtc: DTC, lang: 'ru' | 'az'): Promise<AIInsi
 };
 
 export const getReportSummary = async (errors: DTC[], lang: 'ru' | 'az'): Promise<string> => {
-  if (!isOnline()) {
+  if (!isOnline() || !ai) {
     return lang === 'ru' 
       ? `Обнаружено ${errors.length} ошибок. Требуется диагностика систем: ${[...new Set(errors.map(e => e.system))].join(', ')}.`
       : `${errors.length} xəta aşkarlandı. Sistemlərin diaqnostikası tələb olunur: ${[...new Set(errors.map(e => e.system))].join(', ')}.`;
@@ -116,7 +117,7 @@ export const getReportSummary = async (errors: DTC[], lang: 'ru' | 'az'): Promis
 };
 
 export const chatWithMechanic = async (history: ChatMessage[], message: string, context: string, lang: 'ru' | 'az') => {
-  if (!isOnline()) return lang === 'ru' ? "Извините, чат работает только онлайн." : "Bağışlayın, çat yalnız onlayn işləyir.";
+  if (!isOnline() || !ai) return lang === 'ru' ? "Извините, чат работает только онлайн." : "Bağışlayın, çat yalnız onlayn işləyir.";
 
   try {
     const systemInstruction = lang === 'az' 
@@ -146,7 +147,7 @@ export const chatWithMechanic = async (history: ChatMessage[], message: string, 
 };
 
 export const decodeVin = async (vin: string, lang: 'ru' | 'az') => {
-  if (!isOnline()) return localDecodeVin(vin);
+  if (!isOnline() || !ai) return localDecodeVin(vin);
 
   try {
     const promptLang = lang === 'az' ? 'Azərbaycan' : 'Русский';
@@ -176,7 +177,7 @@ export const getMaintenanceRecommendations = async (vin: string, year: number, l
   const vehicle = make ? `${make} ${model} (${year})` : `${year} model vehicle`;
   const promptLang = lang === 'az' ? 'Azərbaycan' : 'Русский';
   
-  if (!isOnline()) {
+  if (!isOnline() || !ai) {
     return {
       vehicleType: vehicle,
       nextProcedures: [
